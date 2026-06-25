@@ -9,7 +9,7 @@ namespace SurrealDb.Net.Internals.Cbor.Converters;
 /// Nested maps become Dictionary, arrays become List[object?], primitives stay as-is.
 /// Used for RPC error details so any server shape is accepted without throwing.
 /// </summary>
-internal sealed class CborMapToDictionaryConverter : CborConverterBase<Dictionary<string, object?>?>
+public sealed class CborMapToDictionaryConverter : CborConverterBase<Dictionary<string, object?>?>
 {
     public override Dictionary<string, object?>? Read(ref CborReader reader)
     {
@@ -18,7 +18,64 @@ internal sealed class CborMapToDictionaryConverter : CborConverterBase<Dictionar
 
     public override void Write(ref CborWriter writer, Dictionary<string, object?>? value)
     {
-        throw new NotSupportedException("Cannot write Dictionary<string, object?> back to CBOR.");
+        if (value is null)
+        {
+            writer.WriteNull();
+            return;
+        }
+
+        writer.WriteBeginMap(value.Count);
+        foreach (var kvp in value)
+        {
+            writer.WriteString(kvp.Key);
+            WriteCborValue(ref writer, kvp.Value);
+        }
+    }
+
+    private static void WriteCborValue(ref CborWriter writer, object? value)
+    {
+        switch (value)
+        {
+            case null:
+                writer.WriteNull();
+                break;
+            case bool b:
+                writer.WriteBoolean(b);
+                break;
+            case string s:
+                writer.WriteString(s);
+                break;
+            case int i:
+                writer.WriteInt32(i);
+                break;
+            case long l:
+                writer.WriteInt64(l);
+                break;
+            case float f:
+                writer.WriteSingle(f);
+                break;
+            case double d:
+                writer.WriteDouble(d);
+                break;
+            case Dictionary<string, object?> map:
+                writer.WriteBeginMap(map.Count);
+                foreach (var kvp in map)
+                {
+                    writer.WriteString(kvp.Key);
+                    WriteCborValue(ref writer, kvp.Value);
+                }
+                break;
+            case List<object?> list:
+                writer.WriteBeginArray(list.Count);
+                foreach (var item in list)
+                {
+                    WriteCborValue(ref writer, item);
+                }
+                break;
+            default:
+                writer.WriteString(value.ToString());
+                break;
+        }
     }
 
     internal static Dictionary<string, object?>? ReadNullableMap(ref CborReader reader)
@@ -64,7 +121,7 @@ internal sealed class CborMapToDictionaryConverter : CborConverterBase<Dictionar
 
         return itemType switch
         {
-            CborDataItemType.Null => reader.ReadNull(),
+            CborDataItemType.Null => ReadNullValue(ref reader),
             CborDataItemType.Boolean => reader.ReadBoolean(),
             CborDataItemType.String => reader.ReadString(),
             CborDataItemType.Signed => reader.ReadInt64(),
@@ -114,6 +171,13 @@ internal sealed class CborMapToDictionaryConverter : CborConverterBase<Dictionar
         }
 
         return list;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static object? ReadNullValue(ref CborReader reader)
+    {
+        reader.ReadNull();
+        return null;
     }
 
     private static object? SkipAndReturnNull(ref CborReader reader)
